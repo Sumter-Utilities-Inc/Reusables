@@ -1,0 +1,109 @@
+name: Reusable – .NET Matrix Build/Test
+
+on:
+  workflow_call:
+    inputs:
+      dotnet_version:
+        description: ".NET SDK version"
+        required: false
+        type: string
+        default: "9.0.x"
+      enable_private_nuget:
+        description: "Configure private NuGet feed using repo vars/secrets"
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      NUGET_PACKAGES_AUTH_TOKEN:
+        required: false
+
+env:
+  matrix_path: src/strategy_matrix_pull_request_builds.json
+  upload_test_results: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  load_matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: set-matrix
+        name: Read matrix (expects a plain JSON array)
+        shell: bash
+        run: |
+          MATRIX_PATH="${{ env.matrix_path }}"
+          test -f "$MATRIX_PATH" || { echo "Missing $MATRIX_PATH" >&2; exit 1; }
+          arr=$(jq -c . "$MATRIX_PATH")
+          echo "matrix={\"build\": $arr}" >> "$GITHUB_OUTPUT"
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+  build_test:
+    name: ${{ matrix.build }}
+    runs-on: ubuntu-24.04
+    needs: load_matrix
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.load_matrix.outputs.matrix) }}
+
+    env:
+      SRC_DIR: src/${{ matrix.build }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
+            **/*.csproj
+
+      - name: Configure private NuGet feed
+        if: ${{ inputs.enable_private_nuget && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+        env:
+          NUGET_INDEX: ${{ vars.NUGET_PKG_INDEX }}
+          NUGET_NAME: ${{ vars.NUGET_PKG_NAME }}
+          NUGET_USER: ${{ vars.NUGET_CONFIG_USERNAME }}
+          NUGET_TOKEN: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -n "$NUGET_INDEX" && -n "$NUGET_NAME" && -n "$NUGET_USER" && -n "$NUGET_TOKEN" ]]; then
+            dotnet nuget remove source "$NUGET_NAME" || true
+            dotnet nuget add source "$NUGET_INDEX" \
+              --name "$NUGET_NAME" \
+              --username "$NUGET_USER" \
+              --password "$NUGET_TOKEN"
+          else
+            echo "NuGet vars/secrets not fully set; skipping private source."
+          fi
+
+      - name: Restore
+        working-directory: ${{ env.SRC_DIR }}
+        run: dotnet restore ${{ matrix.build }}.csproj --locked-mode
+
+      - name: Build
+        working-directory: ${{ env.SRC_DIR }}
+        run: dotnet build ${{ matrix.build }}.csproj --configuration Release --no-restore --nologo
+
+      - name: Test
+        working-directory: ${{ env.SRC_DIR }}
+        run: dotnet test ${{ matrix.build }}.csproj --configuration Release --no-build --logger "trx;LogFileName=test.trx"
+
+      - name: Upload test results
+        if: ${{ env.upload_test_results && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.build }}-test-results
+          path: ${{ env.SRC_DIR }}/TestResults/**/*.trx
