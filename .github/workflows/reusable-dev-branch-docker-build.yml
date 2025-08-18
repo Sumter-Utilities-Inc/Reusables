@@ -1,4 +1,4 @@
-name: Reusable – Dev Branch Docker Build (secure, publish-before-docker)
+name: Reusable – Development Build
 
 on:
   workflow_call:
@@ -7,7 +7,7 @@ on:
         description: ".NET SDK version"
         required: false
         type: string
-        default: "9.0.x"
+        default: '9.0.x'
 
 permissions:
   contents: read
@@ -44,17 +44,17 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y xmlstarlet
-          KEY=$(xmlstarlet sel -t -m '//packageSources/add[contains(@value,"nuget.pkg.github.com")]' -v @key -n NuGet.config | head -n1)
+          KEY=$(xmlstarlet sel -t -m '//packageSources/add[contains(@value,"nuget.pkg.github.com")]' -v @key -n nuget.config | head -n1)
           if [[ -z "$KEY" ]]; then
-            echo "::error::No GitHub Packages source found in NuGet.config"
+            echo "::error::No GitHub Packages source found in nuget.config"
             exit 1
           fi
           echo "GHPK_KEY=$KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Set repo owner in NuGet.config
+      - name: Set repo owner in nuget.config
         run: |
           OWNER="${{ github.repository_owner }}"
-          sed -i "s|__REPO_OWNER__|$OWNER|g" NuGet.config
+          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
 
   build_publish:
     needs: init_workflow
@@ -80,7 +80,9 @@ jobs:
           set -euo pipefail
           dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
             --username "$GITHUB_ACTOR" \
-            --password "$NUGET_TOKEN"
+            --password "$NUGET_TOKEN" \
+            --store-password-in-clear-text \
+            --configfile "nuget.config"
 
       - name: Publish container apps (Debug)
         run: |
@@ -107,6 +109,7 @@ jobs:
       contents: read
       packages: write
     env:
+      DOCKER_REGISTRY: "${{ vars.DOCKER_IMAGE_PKGS }}/${{ needs.init_workflow.outputs.repo_owner_lower }}/"
       base_image: "${{ vars.DOCKER_IMAGE_PKGS }}/${{ needs.init_workflow.outputs.repo_owner_lower }}/"
     steps:
       - id: container_name
@@ -127,14 +130,21 @@ jobs:
 
       - name: Tag substitution
         run: |
-          set -euo pipefail
-          cd src
-          sed -i "s/xxVERSIONxx/:dev/g" docker-compose-cicd.yml
-
+          sed -i 's/xxVERSIONxx/:dev/g' src/docker-compose-cicd.yml
+          
       - name: Build & push dev image (runtime-only Dockerfiles)
-        shell: bash
         run: |
           set -euo pipefail
           cd src
           docker compose -f docker-compose-cicd.yml build ${{ steps.container_name.outputs.lowercase }}
+
+          # B: After build, list actual local images tagged
+          echo "---- Debug B: local images ----"
+          docker images --format '{{.Repository}}:{{.Tag}}' | sort | grep -E '(^|/)mike\.(web|worker):dev$' || true
+
+          # C: Before push, show the exact push target
+          echo "---- Debug C: push target ----"
+          echo "${{ env.base_image }}${{ steps.container_name.outputs.lowercase }}:dev"
+
+          # Push
           docker push ${{ env.base_image }}${{ steps.container_name.outputs.lowercase }}:dev
