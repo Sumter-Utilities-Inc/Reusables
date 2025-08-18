@@ -1,4 +1,4 @@
-name: Reusable – .NET Matrix Build/Test
+name: Reusable – Build & Test
 
 on:
   workflow_call:
@@ -7,7 +7,7 @@ on:
         description: ".NET SDK version"
         required: false
         type: string
-        default: "9.0.x"
+        default: '9.0.x"'
       enable_private_nuget:
         description: "Configure private NuGet feed using repo vars/secrets"
         required: false
@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-reusable
   cancel-in-progress: true
 
 jobs:
@@ -73,9 +73,9 @@ jobs:
       - name: Configure private NuGet feed
         if: ${{ inputs.enable_private_nuget && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
         env:
-          NUGET_INDEX: ${{ vars.NUGET_PKG_INDEX }}
-          NUGET_NAME: ${{ vars.NUGET_PKG_NAME }}
-          NUGET_USER: ${{ vars.NUGET_CONFIG_USERNAME }}
+          NUGET_INDEX: ${{ vars.NUGET_PKG_INDEX_V1 }}
+          NUGET_NAME: ${{ vars.NUGET_PKG_NAME_V1 }}
+          NUGET_USER: ${{ vars.NUGET_CONFIG_USERNAME_V1 }}
           NUGET_TOKEN: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }}
         shell: bash
         run: |
