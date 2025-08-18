@@ -1,4 +1,4 @@
-name: Reusable – Main Branch Release Pipeline (.NET + Docker, secure NuGet config)
+name: Reusable – Main Release
 
 on:
   workflow_call:
@@ -7,11 +7,7 @@ on:
         description: ".NET SDK version"
         required: false
         type: string
-        default: "9.0.x"
-      nuget_publish_target:
-        description: "NuGet publish target: 'nuget.org' or 'github'"
-        required: true
-        type: string
+        default: '9.0.x'
     secrets:
       NUGET_PACKAGES_AUTH_TOKEN:
         required: true
@@ -21,7 +17,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-reusable
   cancel-in-progress: true
 
 jobs:
@@ -80,17 +76,17 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update && sudo apt-get install -y xmlstarlet   # previously installed in multiple jobs:contentReference[oaicite:2]{index=2}
-          KEY=$(xmlstarlet sel -t -m '//packageSources/add[contains(@value,"nuget.pkg.github.com")]' -v @key -n NuGet.config | head -n1)
+          KEY=$(xmlstarlet sel -t -m '//packageSources/add[contains(@value,"nuget.pkg.github.com")]' -v @key -n nuget.config | head -n1)
           if [[ -z "$KEY" ]]; then
-            echo "::error::No GitHub Packages source found in NuGet.config"
+            echo "::error::No GitHub Packages source found in nuget.config"
             exit 1
           fi
           echo "GHPK_KEY=$KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Set repo owner in NuGet.config
+      - name: Set repo owner in nuget.config
         run: |
           OWNER="${{ github.repository_owner }}"
-          sed -i "s|__REPO_OWNER__|$OWNER|g" NuGet.config
+          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
 
   build_publish:
     needs: init_workflow
@@ -110,14 +106,15 @@ jobs:
             **/*.csproj
 
       - name: Configure credentials for GitHub Packages source
-        shell: bash
         env:
           NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
             --username "$GITHUB_ACTOR" \
-            --password "$NUGET_TOKEN"
+            --password "$NUGET_TOKEN" \
+            --store-password-in-clear-text \
+            --configfile "nuget.config"
 
       - name: Publish container apps (Release)
         shell: bash
@@ -178,6 +175,7 @@ jobs:
       contents: read
       packages: write
     env:
+      DOCKER_REGISTRY: "${{ vars.DOCKER_IMAGE_PKGS }}/${{ needs.init_workflow.outputs.repo_owner_lower }}/"
       base_image: "${{ vars.DOCKER_IMAGE_PKGS }}/${{ needs.init_workflow.outputs.repo_owner_lower }}/"
     steps:
       - id: container_name
@@ -233,21 +231,22 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: ${{ inputs.dotnet_version }}
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
             **/*.csproj
 
       - name: Configure credentials for GitHub Packages source
-        shell: bash
         env:
           NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
             --username "$GITHUB_ACTOR" \
-            --password "$NUGET_TOKEN"
+            --password "$NUGET_TOKEN" \
+            --store-password-in-clear-text \
+            --configfile "nuget.config"
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
@@ -265,13 +264,4 @@ jobs:
         run: dotnet pack ${{ matrix.nuget_package }}.csproj --configuration Release --no-build --output "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}" -p:PackageVersion=${{ needs.init_workflow.outputs.version_no_v }}
 
       - name: Push package
-        run: |
-          if [ "${{ inputs.nuget_publish_target }}" = "nuget.org" ]; then
-            SOURCE="https://api.nuget.org/v3/index.json"
-          else
-            SOURCE="${{ needs.init_workflow.outputs.ghpk_key }}"
-          fi
-
-          dotnet nuget push "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}/${{ matrix.nuget_package }}.${{ needs.init_workflow.outputs.version_no_v }}.nupkg" \
-            --api-key ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }} \
-            --source "$SOURCE"
+        run: dotnet nuget push "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}/${{ matrix.nuget_package }}.${{ needs.init_workflow.outputs.version_no_v }}.nupkg" --api-key ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }} --source "${{ vars.NUGET_PKG_INDEX }}"
