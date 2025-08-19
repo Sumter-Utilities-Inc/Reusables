@@ -114,6 +114,11 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
+      - id: project_name
+        uses: ASzc/change-string-case-action@v5
+        with:
+          string: ${{ env.IMAGE_NAME }}
+          
       - name: Set up Docker Buildx (BuildKit)
         uses: docker/setup-buildx-action@v3
 
@@ -132,8 +137,8 @@ jobs:
           push: true
           provenance: false
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.TAG1 }}
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.TAG2 }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ steps.project_name.outputs.lowercase }}:${{ env.TAG1 }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ steps.project_name.outputs.lowercase }}:${{ env.TAG2 }}
           build-args: |
             REPO_OWNER=${{ env.OWNER }}
           secrets: |
