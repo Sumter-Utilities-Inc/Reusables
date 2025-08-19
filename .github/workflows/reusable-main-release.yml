@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       dotnet_version:
-        description: ".NET SDK version (for NuGet pack job only)"
+        description: ".NET SDK version"
         required: false
         type: string
         default: '9.0.x'
@@ -13,8 +13,8 @@ on:
         required: true
 
 permissions:
-  contents: write   # needed for tagging/release
-  packages: write   # needed for GHCR push & GitHub Packages NuGet
+  contents: write   # tag/release
+  packages: write   # GHCR + GitHub Packages (NuGet)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-reusable
@@ -26,16 +26,22 @@ jobs:
     timeout-minutes: 5
     outputs:
       containers: ${{ steps.container_matrix.outputs.matrix }}
+      nuget_packages: ${{ steps.nuget_matrix.outputs.matrix }}
       repo_owner_lower: ${{ steps.split.outputs._0 }}
       repo_name: ${{ steps.split.outputs._1 }}
       version: ${{ steps.semver.outputs.next }}
       version_no_v: ${{ steps.version.outputs.substring }}
+      ghpk_key: ${{ steps.detect-ghpk.outputs.GHPK_KEY }}
     steps:
       - uses: actions/checkout@v4
 
       - id: container_matrix
         name: Load container matrix
         run: 'echo "matrix={""container"": $(jq -c . ./src/strategy_matrix_containers.json)}" >> "$GITHUB_OUTPUT"'
+
+      - id: nuget_matrix
+        name: Load NuGet package matrix
+        run: 'echo "matrix={""nuget_package"": $(jq -c . ./src/strategy_matrix_nuget_packages.json)}" >> "$GITHUB_OUTPUT"'
 
       - id: owner_repo
         uses: ASzc/change-string-case-action@v5
@@ -63,6 +69,24 @@ jobs:
         with:
           value: ${{ steps.semver.outputs.next }}
           index_of_str: "v"
+
+      - id: detect-ghpk
+        name: Detect GitHub Packages NuGet source key
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y xmlstarlet
+          KEY=$(xmlstarlet sel -t -m '//packageSources/add[contains(@value,"nuget.pkg.github.com")]' -v @key -n nuget.config | head -n1)
+          if [[ -z "$KEY" ]]; then
+            echo "::error::No GitHub Packages source found in nuget.config"
+            exit 1
+          fi
+          echo "GHPK_KEY=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Set repo owner in nuget.config
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
 
   release:
     name: "release (${{ needs.init_workflow.outputs.version }})"
@@ -140,14 +164,52 @@ jobs:
             NUGET_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
   nuget:
-    if: ${{ always() && !cancelled() }}
+    if: ${{ !contains(toJson(needs.init_workflow.outputs.nuget_packages), '[]') }}
     name: "nuget ${{ matrix.nuget_package }}:(${{ needs.init_workflow.outputs.version }})"
     needs: [init_workflow, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson('{"nuget_package": []}') }}
+      matrix: ${{ fromJson(needs.init_workflow.outputs.nuget_packages) }}
     steps:
-      - name: No-op (NuGet packaging disabled in this variant)
-        run: echo "NuGet pack/push handled elsewhere or intentionally disabled."
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+          cache: true
+          cache-dependency-path: |
+            **/packages.lock.json
+            **/*.csproj
+
+      - name: Configure credentials for GitHub Packages source
+        env:
+          NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
+            --username "$GITHUB_ACTOR" \
+            --password "$NUGET_TOKEN" \
+            --store-password-in-clear-text \
+            --configfile "nuget.config"
+
+      - name: Restore
+        working-directory: src/${{ matrix.nuget_package }}
+        run: dotnet restore ${{ matrix.nuget_package }}.csproj
+
+      - name: Build
+        working-directory: src/${{ matrix.nuget_package }}
+        run: dotnet build ${{ matrix.nuget_package }}.csproj --configuration Release
+
+      - name: Prepare artifacts
+        run: mkdir -p "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}"
+
+      - name: Pack
+        working-directory: src/${{ matrix.nuget_package }}
+        run: dotnet pack ${{ matrix.nuget_package }}.csproj --configuration Release --no-build --output "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}" -p:PackageVersion=${{ needs.init_workflow.outputs.version_no_v }}
+
+      - name: Push package
+        run: dotnet nuget push "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}/${{ matrix.nuget_package }}.${{ needs.init_workflow.outputs.version_no_v }}.nupkg" --api-key ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }} --source "${{ vars.NUGET_PKG_INDEX }}"
