@@ -151,7 +151,7 @@ jobs:
       - name: Build & push (full Dockerfile, BuildKit secrets)
         uses: docker/build-push-action@v6
         with:
-          context: ./src/${{ env.IMAGE_NAME }}
+          context: .
           file: ./src/${{ env.IMAGE_NAME }}/Dockerfile
           push: true
           provenance: false
