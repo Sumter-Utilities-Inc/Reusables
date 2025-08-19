@@ -15,7 +15,7 @@ on:
         default: 'dev'
     secrets:
       NUGET_PACKAGES_AUTH_TOKEN:
-        required: false
+        required: true
 
 permissions:
   contents: read
@@ -190,7 +190,6 @@ jobs:
           dotnet pack ${{ matrix.nuget_package }}.csproj --configuration Release --no-build --output "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}" -p:PackageVersion="$ver"
 
       - name: Push package (optional)
-        if: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN != '' }}
         run: |
           ver="0.0.0-${{ inputs.tag_prefix }}.${{ needs.init_workflow.outputs.safe_branch }}.${{ needs.init_workflow.outputs.short_sha }}"
           dotnet nuget push "$GITHUB_WORKSPACE/artifacts/${{ matrix.nuget_package }}/${{ matrix.nuget_package }}.$ver.nupkg" --api-key ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }} --source "${{ vars.NUGET_PKG_INDEX }}"
