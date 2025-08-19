@@ -1,0 +1,153 @@
+name: Reusable – Main Release (BuildKit)
+
+on:
+  workflow_call:
+    inputs:
+      dotnet_version:
+        description: ".NET SDK version (for NuGet pack job only)"
+        required: false
+        type: string
+        default: '9.0.x'
+    secrets:
+      NUGET_PACKAGES_AUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: write   # needed for tagging/release
+  packages: write   # needed for GHCR push & GitHub Packages NuGet
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-reusable
+  cancel-in-progress: true
+
+jobs:
+  init_workflow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      containers: ${{ steps.container_matrix.outputs.matrix }}
+      repo_owner_lower: ${{ steps.split.outputs._0 }}
+      repo_name: ${{ steps.split.outputs._1 }}
+      version: ${{ steps.semver.outputs.next }}
+      version_no_v: ${{ steps.version.outputs.substring }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: container_matrix
+        name: Load container matrix
+        run: 'echo "matrix={""container"": $(jq -c . ./src/strategy_matrix_containers.json)}" >> "$GITHUB_OUTPUT"'
+
+      - id: owner_repo
+        uses: ASzc/change-string-case-action@v5
+        with:
+          string: ${{ github.repository }}
+
+      - uses: winterjung/split@v2
+        id: split
+        with:
+          msg: ${{ steps.owner_repo.outputs.lowercase }}
+          separator: "/"
+
+      - name: Get next version
+        id: semver
+        uses: ietf-tools/semver-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          minorList: feat
+          patchList: fix, docs, style, refactor, perf, test, build, ci, chore
+
+      - uses: bhowell2/github-substring-action@v1.0.0
+        id: version
+        name: Extract numeric version (drop 'v')
+        with:
+          value: ${{ steps.semver.outputs.next }}
+          index_of_str: "v"
+
+  release:
+    name: "release (${{ needs.init_workflow.outputs.version }})"
+    runs-on: ubuntu-24.04
+    needs: [init_workflow]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Create version tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "GitHub Actions"
+          git config user.email noreply@github.com
+          git tag ${{ needs.init_workflow.outputs.version }}
+          git push origin ${{ needs.init_workflow.outputs.version }}
+
+      - uses: requarks/changelog-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ needs.init_workflow.outputs.version }}
+          includeInvalidCommits: true
+
+      - uses: ncipollo/release-action@v1
+        with:
+          name: "Release ${{ needs.init_workflow.outputs.version }}"
+          tag: ${{ needs.init_workflow.outputs.version }}
+          bodyFile: "CHANGELOG.md"
+
+  docker:
+    if: ${{ !contains(toJson(needs.init_workflow.outputs.containers), '[]') }}
+    runs-on: ubuntu-24.04
+    needs: [init_workflow, release]
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJson(needs.init_workflow.outputs.containers) }}
+    env:
+      REGISTRY: ${{ vars.DOCKER_IMAGE_PKGS }}   # e.g., ghcr.io
+      OWNER: ${{ needs.init_workflow.outputs.repo_owner_lower }}
+      IMAGE_NAME: ${{ matrix.container }}
+      VERSION: ${{ needs.init_workflow.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Docker Buildx (BuildKit)
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push (full Dockerfile, BuildKit secrets)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/${{ env.IMAGE_NAME }}
+          file: ./src/${{ env.IMAGE_NAME }}/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}
+          build-args: |
+            REPO_OWNER=${{ env.OWNER }}
+          secrets: |
+            NUGET_GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+
+  nuget:
+    if: ${{ always() && !cancelled() }}
+    name: "nuget ${{ matrix.nuget_package }}:(${{ needs.init_workflow.outputs.version }})"
+    needs: [init_workflow, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson('{"nuget_package": []}') }}
+    steps:
+      - name: No-op (NuGet packaging disabled in this variant)
+        run: echo "NuGet pack/push handled elsewhere or intentionally disabled."
