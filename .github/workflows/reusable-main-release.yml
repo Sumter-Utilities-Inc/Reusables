@@ -182,6 +182,13 @@ jobs:
         with:
           ref: main
 
+      - name: Resolve NuGet config path
+        run: echo "CONFIG=$GITHUB_WORKSPACE/nuget.config" >> "$GITHUB_ENV"
+
+      - name: Set repo owner in nuget.config
+        run: |
+          sed -i "s|__REPO_OWNER__|${{ github.repository_owner }}|g" "$CONFIG"
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ inputs.dotnet_version }}
@@ -189,26 +196,24 @@ jobs:
           cache-dependency-path: |
             **/packages.lock.json
             **/*.csproj
-            
-      - name: Set repo owner in nuget.config
-        run: |
-          OWNER="${{ github.repository_owner }}"
-          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
-          
+
       - name: Configure credentials for GitHub Packages source
         env:
-          NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Prefer PAT with read:packages if reading other repos/orgs:
+          NUGET_TOKEN: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }}
+          # NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
             --username "$GITHUB_ACTOR" \
             --password "$NUGET_TOKEN" \
             --store-password-in-clear-text \
-            --configfile "nuget.config"
-
+            --configfile "$CONFIG"
+            
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
-        run: dotnet restore ${{ matrix.nuget_package }}.csproj
+        run: dotnet restore ${{ matrix.nuget_package }}.csproj --configfile "$CONFIG"
+
 
       - name: Build
         working-directory: src/${{ matrix.nuget_package }}
