@@ -176,6 +176,11 @@ jobs:
             --password "$NUGET_TOKEN" \
             --store-password-in-clear-text \
             --configfile "nuget.config"
+            
+      - name: Set repo owner in nuget.config
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
