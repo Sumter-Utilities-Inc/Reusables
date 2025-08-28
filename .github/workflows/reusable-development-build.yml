@@ -166,12 +166,6 @@ jobs:
             **/packages.lock.json
             **/*.csproj
             
-      - name: Show nuget.config (Before)
-        run: |
-          echo "===== nuget.config contents ====="
-          cat nuget.config
-          echo "================================="
-
       - name: Configure credentials for GitHub Packages source
         env:
           NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -187,16 +181,6 @@ jobs:
         run: |
           OWNER="${{ github.repository_owner }}"
           sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
-            
-      - name: Show nuget.config (Before)
-        run: |
-          echo "===== nuget.config contents ====="
-          cat nuget.config
-          echo "================================="
-            
-      - name: Copy nuget.config to project folder
-        run: |
-          copy nuget.config src/${{ matrix.nuget_package }}/nuget.config
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
