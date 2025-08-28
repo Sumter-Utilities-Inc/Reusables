@@ -189,7 +189,6 @@ jobs:
       - name: Show active NuGet sources (redacted)
         run: |
           dotnet nuget list source --configfile "$CONFIG"
-          xmlstarlet sel -t -m "//packageSources/add" -v "@key" -o "=" -v "@value" -n "$CONFIG"
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
