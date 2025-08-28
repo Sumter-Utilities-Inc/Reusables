@@ -184,7 +184,7 @@ jobs:
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
-        run: dotnet restore ${{ matrix.nuget_package }}.csproj
+        run: dotnet restore ${{ matrix.nuget_package }}.csproj --configfile "$CONFIG"
 
       - name: Build
         working-directory: src/${{ matrix.nuget_package }}
