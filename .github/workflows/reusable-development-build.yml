@@ -186,10 +186,6 @@ jobs:
             --store-password-in-clear-text \
             --configfile "$CONFIG"
 
-      - name: Show active NuGet sources (redacted)
-        run: |
-          dotnet nuget list source --configfile "$CONFIG"
-
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
         run: dotnet restore ${{ matrix.nuget_package }}.csproj --configfile "$CONFIG"
