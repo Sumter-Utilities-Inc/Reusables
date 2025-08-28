@@ -195,6 +195,11 @@ jobs:
           echo "===== nuget.config contents ====="
           cat nuget.config
           echo "================================="
+
+      - name: Set repo owner in nuget.config
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
           
       - name: Configure credentials for GitHub Packages source
         env:
