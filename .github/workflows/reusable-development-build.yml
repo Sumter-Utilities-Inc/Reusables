@@ -164,7 +164,13 @@ jobs:
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
-            **/*.csproj
+            **/*.csproj- name: Show nuget.config
+            
+      - name: Show nuget.config (Before)
+        run: |
+          echo "===== nuget.config contents ====="
+          cat nuget.config
+          echo "================================="
 
       - name: Configure credentials for GitHub Packages source
         env:
@@ -181,6 +187,12 @@ jobs:
         run: |
           OWNER="${{ github.repository_owner }}"
           sed -i "s|__REPO_OWNER__|$OWNER|g" nuget.config
+            
+      - name: Show nuget.config (Before)
+        run: |
+          echo "===== nuget.config contents ====="
+          cat nuget.config
+          echo "================================="
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
