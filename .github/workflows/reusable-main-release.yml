@@ -189,13 +189,7 @@ jobs:
           cache-dependency-path: |
             **/packages.lock.json
             **/*.csproj
-
-      - name: Show nuget.config (Before)
-        run: |
-          echo "===== nuget.config contents ====="
-          cat nuget.config
-          echo "================================="
-
+            
       - name: Set repo owner in nuget.config
         run: |
           OWNER="${{ github.repository_owner }}"
@@ -211,13 +205,6 @@ jobs:
             --password "$NUGET_TOKEN" \
             --store-password-in-clear-text \
             --configfile "nuget.config"
-
-      - name: Show nuget.config (After)
-        run: |
-          echo "===== nuget.config contents ====="
-          cat nuget.config
-          echo "================================="
-          
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
