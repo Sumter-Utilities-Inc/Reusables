@@ -176,8 +176,8 @@ jobs:
       - name: Configure credentials for GitHub Packages source
         env:
           # Prefer PAT with read:packages if reading other repos/orgs:
-          # NUGET_TOKEN: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }}
-          NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUGET_TOKEN: ${{ secrets.NUGET_PACKAGES_AUTH_TOKEN }}
+          # NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           dotnet nuget update source "${{ needs.init_workflow.outputs.ghpk_key }}" \
