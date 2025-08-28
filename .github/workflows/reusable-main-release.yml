@@ -190,6 +190,12 @@ jobs:
             **/packages.lock.json
             **/*.csproj
 
+      - name: Show nuget.config (Before)
+        run: |
+          echo "===== nuget.config contents ====="
+          cat nuget.config
+          echo "================================="
+          
       - name: Configure credentials for GitHub Packages source
         env:
           NUGET_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -200,6 +206,13 @@ jobs:
             --password "$NUGET_TOKEN" \
             --store-password-in-clear-text \
             --configfile "nuget.config"
+
+      - name: Show nuget.config (After)
+        run: |
+          echo "===== nuget.config contents ====="
+          cat nuget.config
+          echo "================================="
+          
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
