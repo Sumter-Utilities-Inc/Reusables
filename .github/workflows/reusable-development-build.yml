@@ -194,11 +194,9 @@ jobs:
           cat nuget.config
           echo "================================="
             
-      - name: Show dir
+      - name: Copy nuget.config to project folder
         run: |
-          echo "===== nuget.config contents ====="
-          dir
-          echo "================================="
+          copy nuget.config src/${{ matrix.nuget_package }}/nuget.config
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
