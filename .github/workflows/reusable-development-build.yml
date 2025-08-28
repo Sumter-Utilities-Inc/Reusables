@@ -164,7 +164,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             **/packages.lock.json
-            **/*.csproj- name: Show nuget.config
+            **/*.csproj
             
       - name: Show nuget.config (Before)
         run: |
