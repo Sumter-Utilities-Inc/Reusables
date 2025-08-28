@@ -193,6 +193,12 @@ jobs:
           echo "===== nuget.config contents ====="
           cat nuget.config
           echo "================================="
+            
+      - name: Show dir
+        run: |
+          echo "===== nuget.config contents ====="
+          dir
+          echo "================================="
 
       - name: Restore
         working-directory: src/${{ matrix.nuget_package }}
